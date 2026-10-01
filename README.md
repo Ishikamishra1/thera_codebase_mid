@@ -137,6 +137,28 @@ Scoring is performed by **Amazon Nova Pro** (`amazon.nova-pro-v1:0`) via the Bed
 
 ---
 
+## Database Setup (one-time — seed demo feedback data)
+
+Pre-populate the database with 3 historical scans, 15 opportunities, and 20 researcher
+feedback decisions so the "Retrain scoring weights" button shows a visible weight change
+on day one of the demo:
+
+```bash
+# Install script dependencies (if not already done)
+pip install -r scripts/requirements.txt
+
+# DATABASE_URL must be set in .env
+# Local: DATABASE_URL=postgresql://localhost/therascout
+# AWS RDS: DATABASE_URL=<value from SecretsManager after deploy>
+
+python scripts/seed_database.py
+```
+
+After running, open the frontend → "View past scans" → click **"Retrain scoring weights from feedback"**.
+You will see weights shift: `unmet_medical_need` rises to ~33%, `competitive_landscape` drops to ~3%.
+
+---
+
 ## Knowledge Base Setup (RAG — one-time after deploy)
 
 ```bash
