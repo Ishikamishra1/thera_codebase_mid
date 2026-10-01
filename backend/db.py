@@ -186,3 +186,158 @@ def get_weights() -> dict:
     except Exception as exc:
         log.error("get_weights failed: %s", exc)
         return {}
+
+
+def save_feedback(execution_arn: str, opportunity_rank: int,
+                  decision: str, comment: str = "", submitted_by: str = "researcher") -> bool:
+    """Save a researcher's approve/reject/needs_review decision for one opportunity."""
+    conn = _get_conn()
+    if conn is None:
+        return False
+
+    try:
+        with conn.cursor() as cur:
+            # Resolve scan_id and opportunity_id from arn + rank
+            cur.execute("SELECT id FROM scans WHERE execution_arn = %s", (execution_arn,))
+            row = cur.fetchone()
+            if not row:
+                log.warning("save_feedback: scan not found for arn %s", execution_arn[-12:])
+                return False
+            scan_id = row[0]
+
+            cur.execute(
+                "SELECT id FROM opportunities WHERE scan_id = %s AND rank = %s",
+                (scan_id, opportunity_rank),
+            )
+            row = cur.fetchone()
+            if not row:
+                log.warning("save_feedback: opportunity rank %s not found in scan %s", opportunity_rank, scan_id)
+                return False
+            opportunity_id = row[0]
+
+            cur.execute(
+                """
+                INSERT INTO researcher_feedback
+                    (opportunity_id, scan_id, decision, comment, submitted_by)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (opportunity_id, scan_id, decision, comment, submitted_by),
+            )
+        conn.commit()
+        log.info("Feedback saved: scan=%s rank=%s decision=%s", scan_id, opportunity_rank, decision)
+        return True
+    except Exception as exc:
+        conn.rollback()
+        log.error("save_feedback failed: %s", exc)
+        return False
+
+
+def get_feedback_stats() -> dict:
+    """
+    Return per-dimension average scores for approved vs rejected opportunities.
+    Used by retrain_weights() to compute adjustment direction.
+    """
+    conn = _get_conn()
+    if conn is None:
+        return {}
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT rf.decision, o.dimension_scores
+                FROM researcher_feedback rf
+                JOIN opportunities o ON rf.opportunity_id = o.id
+                WHERE rf.decision IN ('approved', 'rejected')
+                """
+            )
+            rows = cur.fetchall()
+
+        if not rows:
+            return {}
+
+        dimensions = [
+            "unmet_medical_need", "disease_burden", "existing_treatment_gap",
+            "scientific_evidence", "research_momentum", "competitive_landscape",
+        ]
+        stats: dict = {d: {"approved": [], "rejected": []} for d in dimensions}
+
+        for decision, dim_scores in rows:
+            if isinstance(dim_scores, str):
+                dim_scores = json.loads(dim_scores)
+            for dim in dimensions:
+                val = dim_scores.get(dim)
+                if val is not None:
+                    stats[dim][decision].append(float(val))
+
+        return stats
+    except Exception as exc:
+        log.error("get_feedback_stats failed: %s", exc)
+        return {}
+
+
+def retrain_weights(learning_rate: float = 0.05) -> dict:
+    """
+    Adjust scoring weights based on researcher feedback patterns.
+
+    Logic:
+      For each dimension, compute:
+        avg_approved_score - avg_rejected_score → positive means this dimension
+        correlates with researcher approval → increase its weight.
+      Apply a small learning-rate nudge, then re-normalize weights to sum to 1.0.
+
+    Returns the new weights dict (also persisted to scoring_weights table).
+    """
+    conn = _get_conn()
+    if conn is None:
+        return {}
+
+    stats = get_feedback_stats()
+    if not stats:
+        return {}
+
+    current = get_weights()
+    if not current:
+        return {}
+
+    new_weights = dict(current)
+
+    for dim, counts in stats.items():
+        approved = counts.get("approved", [])
+        rejected = counts.get("rejected", [])
+        if not approved and not rejected:
+            continue
+
+        avg_approved = sum(approved) / len(approved) if approved else 50.0
+        avg_rejected = sum(rejected) / len(rejected) if rejected else 50.0
+
+        # Positive delta → dimension predicted approval → bump weight up
+        delta = (avg_approved - avg_rejected) / 100.0   # normalize 0–1 range
+        new_weights[dim] = max(0.01, new_weights.get(dim, 0.10) + learning_rate * delta)
+
+    # Re-normalize so weights sum to exactly 1.0
+    total = sum(new_weights.values())
+    new_weights = {k: round(v / total, 4) for k, v in new_weights.items()}
+
+    # Persist back to DB
+    try:
+        with conn.cursor() as cur:
+            for dim, weight in new_weights.items():
+                cur.execute(
+                    """
+                    INSERT INTO scoring_weights (dimension, weight, updated_at, updated_by)
+                    VALUES (%s, %s, NOW(), 'retrain')
+                    ON CONFLICT (dimension) DO UPDATE SET
+                        weight     = EXCLUDED.weight,
+                        updated_at = EXCLUDED.updated_at,
+                        updated_by = EXCLUDED.updated_by
+                    """,
+                    (dim, weight),
+                )
+        conn.commit()
+        log.info("Weights retrained: %s", new_weights)
+    except Exception as exc:
+        conn.rollback()
+        log.error("retrain_weights persist failed: %s", exc)
+
+    return new_weights

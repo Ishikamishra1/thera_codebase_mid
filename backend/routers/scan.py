@@ -42,6 +42,14 @@ class AskRequest(BaseModel):
     therapeutic_area: str = "Unknown"
 
 
+class FeedbackRequest(BaseModel):
+    execution_arn: str
+    opportunity_rank: int
+    decision: str           # 'approved' | 'rejected' | 'needs_review'
+    comment: str = ""
+    submitted_by: str = "researcher"
+
+
 @router.post("")
 def start_scan(request: ScanRequest):
     if not STATE_MACHINE_ARN:
@@ -84,6 +92,43 @@ Answer in 3-5 sentences. Be specific, cite the evidence above, and explain the s
     except Exception as exc:
         log.error("Ask-why Bedrock call failed: %s", exc)
         raise HTTPException(status_code=503, detail=f"AI unavailable: {exc}")
+
+
+@router.post("/feedback")
+def submit_feedback(request: FeedbackRequest):
+    """Save researcher approve/reject/needs_review decision for one opportunity."""
+    valid = {"approved", "rejected", "needs_review"}
+    if request.decision not in valid:
+        raise HTTPException(status_code=400, detail=f"decision must be one of {valid}")
+
+    saved = db.save_feedback(
+        execution_arn=request.execution_arn,
+        opportunity_rank=request.opportunity_rank,
+        decision=request.decision,
+        comment=request.comment,
+        submitted_by=request.submitted_by,
+    )
+    if not saved:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan or opportunity not found — ensure DATABASE_URL is set and the scan was saved to RDS.",
+        )
+    return {"status": "saved", "decision": request.decision}
+
+
+@router.post("/weights/retrain")
+def retrain_weights():
+    """
+    Recompute scoring weights from cumulative researcher feedback.
+    Dimensions that consistently appear in approved opportunities gain weight.
+    """
+    new_weights = db.retrain_weights()
+    if not new_weights:
+        raise HTTPException(
+            status_code=422,
+            detail="Not enough feedback to retrain — approve or reject some opportunities first.",
+        )
+    return {"status": "retrained", "new_weights": new_weights}
 
 
 @router.get("/history")
@@ -132,6 +177,7 @@ def get_scan_status(execution_id: str):
 
         llm_result = _score_with_bedrock(therapeutic_area, agent_findings)
         raw["ranked_opportunities"] = llm_result
+        raw["execution_arn"] = execution_arn   # pass through so frontend can send feedback
         result["output"] = raw
 
         # Persist to RDS (no-op if DATABASE_URL not set)

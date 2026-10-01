@@ -52,6 +52,94 @@ function DimScores({ dims }) {
   );
 }
 
+function FeedbackBar({ rank, executionArn }) {
+  const [state, setState] = useState(null); // null | 'loading' | 'approved' | 'rejected' | 'needs_review'
+  const [comment, setComment] = useState("");
+  const [showComment, setShowComment] = useState(false);
+
+  if (!executionArn) return null; // DB not configured — no feedback
+
+  async function submit(decision) {
+    setState("loading");
+    try {
+      await fetch(`${API_BASE}/scan/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          execution_arn: executionArn,
+          opportunity_rank: rank,
+          decision,
+          comment,
+        }),
+      });
+      setState(decision);
+    } catch {
+      setState(null);
+    }
+  }
+
+  if (state && state !== "loading") {
+    const labels = { approved: "✓ Approved", rejected: "✗ Rejected", needs_review: "⚠ Flagged for review" };
+    const colors = { approved: COLORS.success, rejected: COLORS.danger, needs_review: COLORS.warn };
+    return (
+      <div style={{ marginTop: 10, fontSize: 12, color: colors[state], fontWeight: 600 }}>
+        {labels[state]} — feedback saved
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: COLORS.muted, marginRight: 4 }}>Researcher decision:</span>
+        {[
+          { key: "approved", label: "✓ Approve", color: COLORS.success },
+          { key: "needs_review", label: "⚠ Review", color: COLORS.warn },
+          { key: "rejected", label: "✗ Reject", color: COLORS.danger },
+        ].map(btn => (
+          <button
+            key={btn.key}
+            disabled={state === "loading"}
+            onClick={() => {
+              if (comment || !showComment) submit(btn.key);
+              else setShowComment(true);
+            }}
+            style={{
+              background: "none", border: `1px solid ${btn.color}`,
+              color: btn.color, cursor: "pointer", borderRadius: 5,
+              padding: "3px 9px", fontSize: 11, fontWeight: 600,
+              opacity: state === "loading" ? 0.5 : 1,
+            }}
+          >
+            {btn.label}
+          </button>
+        ))}
+        <button
+          onClick={() => setShowComment(o => !o)}
+          style={{
+            background: "none", border: "none", color: COLORS.muted,
+            cursor: "pointer", fontSize: 11, padding: "3px 4px",
+          }}
+        >
+          {showComment ? "hide note" : "+ note"}
+        </button>
+      </div>
+      {showComment && (
+        <input
+          value={comment}
+          onChange={e => setComment(e.target.value)}
+          placeholder="Optional note for the team..."
+          style={{
+            marginTop: 6, width: "100%", background: "#0f1923",
+            border: `1px solid ${COLORS.border}`, color: COLORS.text,
+            borderRadius: 5, padding: "6px 10px", fontSize: 12, outline: "none",
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 function AskAI({ opp, therapeuticArea }) {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
@@ -166,7 +254,7 @@ function AskAI({ opp, therapeuticArea }) {
   );
 }
 
-function OpportunityCard({ opp, rank, therapeuticArea }) {
+function OpportunityCard({ opp, rank, therapeuticArea, executionArn }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div style={{
@@ -210,6 +298,7 @@ function OpportunityCard({ opp, rank, therapeuticArea }) {
             </ul>
           )}
           {opp.dimension_scores && <DimScores dims={opp.dimension_scores} />}
+          <FeedbackBar rank={rank} executionArn={executionArn} />
           <AskAI opp={opp} therapeuticArea={therapeuticArea} />
         </div>
       </div>
@@ -254,6 +343,7 @@ function AgentSummary({ findings }) {
 function ScanHistory() {
   const [history, setHistory] = useState(null);
   const [open, setOpen] = useState(false);
+  const [retrainState, setRetrainState] = useState(null); // null | 'loading' | {weights}
 
   async function load() {
     if (history) { setOpen(o => !o); return; }
@@ -265,6 +355,17 @@ function ScanHistory() {
     } catch {
       setHistory([]);
       setOpen(true);
+    }
+  }
+
+  async function retrain() {
+    setRetrainState("loading");
+    try {
+      const res = await fetch(`${API_BASE}/scan/weights/retrain`, { method: "POST" });
+      const data = await res.json();
+      setRetrainState(data.new_weights || {});
+    } catch (e) {
+      setRetrainState({ error: e.message });
     }
   }
 
@@ -283,6 +384,39 @@ function ScanHistory() {
 
       {open && (
         <div style={{ marginTop: 12 }}>
+          {/* Retrain weights button */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+            <button
+              onClick={retrain}
+              disabled={retrainState === "loading"}
+              style={{
+                background: retrainState && retrainState !== "loading" && !retrainState.error
+                  ? COLORS.success : "none",
+                border: `1px solid ${COLORS.success}`,
+                color: retrainState && retrainState !== "loading" && !retrainState.error
+                  ? "#0f1923" : COLORS.success,
+                cursor: "pointer", borderRadius: 7, padding: "6px 14px",
+                fontSize: 12, fontWeight: 600,
+                opacity: retrainState === "loading" ? 0.6 : 1,
+              }}
+            >
+              {retrainState === "loading" ? "Retraining…"
+                : retrainState && !retrainState.error ? "✓ Weights updated"
+                : "↺ Retrain scoring weights from feedback"}
+            </button>
+            {retrainState && retrainState !== "loading" && !retrainState.error && (
+              <span style={{ fontSize: 11, color: COLORS.muted }}>
+                {Object.entries(retrainState)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([k, v]) => `${k.replace(/_/g, " ")}: ${(v * 100).toFixed(1)}%`)
+                  .join(" · ")}
+              </span>
+            )}
+            {retrainState?.error && (
+              <span style={{ fontSize: 11, color: COLORS.warn }}>{retrainState.error}</span>
+            )}
+          </div>
+
           {!history?.length ? (
             <div style={{ color: COLORS.muted, fontSize: 13, padding: "12px 0" }}>
               No past scans found. Run a scan and results will be saved here
@@ -472,7 +606,11 @@ export default function App() {
                   Top {opportunities.length} Therapeutic Opportunities
                 </h2>
                 {opportunities.map((opp, i) => (
-                  <OpportunityCard key={i} opp={opp} rank={i + 1} therapeuticArea={therapeuticArea} />
+                  <OpportunityCard
+                    key={i} opp={opp} rank={i + 1}
+                    therapeuticArea={therapeuticArea}
+                    executionArn={result?.execution_arn}
+                  />
                 ))}
               </>
             ) : (
