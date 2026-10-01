@@ -55,16 +55,29 @@ cd "C:\Users\2469312\OneDrive - Cognizant\Desktop\build a thon\saml2aws_2.36.19_
 
 This writes temporary credentials to the `saml` profile in `~/.aws/credentials`.
 
-### 2. Deploy infrastructure to AWS
+### 2. Full deploy (infrastructure + Fargate backend)
 
 ```powershell
-cd infra
-pip install -r requirements.txt
-cdk bootstrap
-cdk deploy --all
+# First time only (bootstraps CDK):
+.\deploy.ps1 -AccountId 446205069645 -Bootstrap
+
+# Subsequent deploys:
+.\deploy.ps1 -AccountId 446205069645
 ```
 
-After deploy, `deploy.ps1` writes the `STATE_MACHINE_ARN` to your `.env` automatically.
+`deploy.ps1` will:
+1. Bundle Lambda dependencies
+2. Deploy all CDK stacks (Data → KB → Agents → Orchestration → **Fargate backend**)
+3. Build the Docker image and push it to ECR automatically
+4. Patch `.env` and `frontend/.env` with the live ALB URL
+
+After deploy the script prints:
+```
+Live backend:  http://<alb-dns>.us-east-1.elb.amazonaws.com
+Swagger UI:    http://<alb-dns>.us-east-1.elb.amazonaws.com/docs
+```
+
+Set `VITE_API_BASE` in `frontend/.env` to the printed URL, then `npm run build`.
 
 ---
 

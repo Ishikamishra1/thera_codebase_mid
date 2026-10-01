@@ -80,8 +80,7 @@ The researcher asks: "{request.question}"
 Answer in 3-5 sentences. Be specific, cite the evidence above, and explain the scoring logic clearly. If the question is about a specific dimension score, explain what drove that particular score. End with one concrete suggestion for what the researcher should investigate next."""
 
     try:
-        session = boto3.Session(profile_name=os.environ.get("AWS_PROFILE", "saml"))
-        client = session.client("bedrock-runtime", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+        client = _bedrock_client()
         resp = client.converse(
             modelId=BEDROCK_MODEL_ID,
             messages=[{"role": "user", "content": [{"text": prompt}]}],
@@ -189,6 +188,18 @@ def get_scan_status(execution_id: str):
     return result
 
 
+def _bedrock_client():
+    """
+    Return a bedrock-runtime client.
+    - Local dev (AWS_PROFILE=saml): uses the named SAML profile.
+    - ECS / Lambda: AWS_PROFILE is unset → boto3 uses the task/execution role.
+    """
+    profile = os.environ.get("AWS_PROFILE", "")
+    region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+    session = boto3.Session(profile_name=profile) if profile else boto3.Session()
+    return session.client("bedrock-runtime", region_name=region)
+
+
 def _score_with_bedrock(therapeutic_area: str, findings: list) -> dict:
     by_agent = {}
     for item in findings:
@@ -198,8 +209,7 @@ def _score_with_bedrock(therapeutic_area: str, findings: list) -> dict:
     prompt = _build_prompt(therapeutic_area, by_agent)
 
     try:
-        session = boto3.Session(profile_name=os.environ.get("AWS_PROFILE", "saml"))
-        client = session.client("bedrock-runtime", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+        client = _bedrock_client()
         resp = client.converse(
             modelId=BEDROCK_MODEL_ID,
             messages=[{"role": "user", "content": [{"text": prompt}]}],
