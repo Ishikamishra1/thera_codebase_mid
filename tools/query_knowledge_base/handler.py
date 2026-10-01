@@ -39,8 +39,9 @@ def lambda_handler(event, context):
             "record_count": 0,
             "records": [],
             "llm_insights": (
-                "Knowledge Base not configured yet. Upload documents to S3 kb/ prefix "
-                "and run an ingestion job to enable enterprise RAG retrieval."
+                "Enterprise Knowledge Base not yet configured. "
+                "Run scripts/create_opensearch_index.py then scripts/seed_knowledge_base.py "
+                "and set KNOWLEDGE_BASE_ID to enable RAG retrieval over internal documents."
             ),
             "kb_status": "not_configured",
         }
@@ -62,20 +63,38 @@ def lambda_handler(event, context):
             f"treatment approaches show the most promise for {therapeutic_area}?",
         )
 
+        all_citations = unmet_need_result["citations"] + emerging_result["citations"]
+        # Deduplicate citations by source URI
+        seen_sources = set()
+        unique_citations = []
+        for c in all_citations:
+            src = c.get("source", "")
+            if src not in seen_sources:
+                seen_sources.add(src)
+                unique_citations.append(c)
+
         records = [
             {
                 "query": "unmet_needs",
                 "answer": unmet_need_result["answer"],
                 "citations": unmet_need_result["citations"],
+                "source_count": len(unmet_need_result["citations"]),
             },
             {
                 "query": "emerging_directions",
                 "answer": emerging_result["answer"],
                 "citations": emerging_result["citations"],
+                "source_count": len(emerging_result["citations"]),
             },
         ]
 
+        source_list = ", ".join(
+            c["source"].split("/")[-1].replace(".txt", "").replace("_", " ")
+            for c in unique_citations[:5]
+        ) if unique_citations else "internal documents"
+
         combined_insight = (
+            f"[From {len(unique_citations)} internal documents: {source_list}]\n\n"
             f"Unmet needs: {unmet_need_result['answer']}\n\n"
             f"Emerging directions: {emerging_result['answer']}"
         )
@@ -88,6 +107,7 @@ def lambda_handler(event, context):
             "records": records,
             "llm_insights": combined_insight,
             "kb_status": "active",
+            "sources_retrieved": len(unique_citations),
         }
 
     except ClientError as exc:

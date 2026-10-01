@@ -137,6 +137,32 @@ Scoring is performed by **Amazon Nova Pro** (`amazon.nova-pro-v1:0`) via the Bed
 
 ---
 
+## Knowledge Base Setup (RAG — one-time after deploy)
+
+```bash
+# Install script dependencies
+pip install -r scripts/requirements.txt
+
+# Step 1 — create the OpenSearch knn_vector index
+python scripts/create_opensearch_index.py
+
+# Step 2 — seed with real research documents + trigger ingestion
+# (get values from cdk_outputs.json after cdk deploy --all)
+python scripts/seed_knowledge_base.py \
+  --bucket <TheraScout-Data bucket name> \
+  --kb-id  <KnowledgeBaseId from cdk_outputs> \
+  --ds-id  <DataSourceId from cdk_outputs>
+
+# Step 3 — add to .env and restart backend
+# KNOWLEDGE_BASE_ID=<KnowledgeBaseId>
+```
+
+The seeder uploads **21 documents** across 5 cancer types — disease burden,
+live PubMed abstracts, trial pipeline, treatment landscape, and scoring
+methodology — then triggers Bedrock ingestion automatically (takes ~2-5 min).
+
+---
+
 ## Data Sources
 
 | Agent | Source |
