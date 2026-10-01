@@ -35,6 +35,12 @@ class ScanRequest(BaseModel):
     therapeutic_area: str = "Colorectal Cancer"
 
 
+class AskRequest(BaseModel):
+    opportunity: dict
+    question: str
+    therapeutic_area: str = "Unknown"
+
+
 @router.post("")
 def start_scan(request: ScanRequest):
     if not STATE_MACHINE_ARN:
@@ -44,6 +50,39 @@ def start_scan(request: ScanRequest):
         input=json.dumps({"therapeutic_area": request.therapeutic_area}),
     )
     return {"execution_arn": response["executionArn"]}
+
+
+@router.post("/ask")
+def ask_why(request: AskRequest):
+    opp = request.opportunity
+    prompt = f"""You are a pharmaceutical R&D analyst explaining AI-generated research prioritization to a human researcher.
+
+Therapeutic area: {request.therapeutic_area}
+
+Opportunity being discussed:
+  Name: {opp.get("name", "Unknown")}
+  Overall score: {opp.get("score", "N/A")}/100
+  Rationale: {opp.get("rationale", "")}
+  Key evidence: {", ".join(opp.get("key_evidence", []))}
+  Dimension scores: {json.dumps(opp.get("dimension_scores", {}), indent=2)}
+
+The researcher asks: "{request.question}"
+
+Answer in 3-5 sentences. Be specific, cite the evidence above, and explain the scoring logic clearly. If the question is about a specific dimension score, explain what drove that particular score. End with one concrete suggestion for what the researcher should investigate next."""
+
+    try:
+        session = boto3.Session(profile_name=os.environ.get("AWS_PROFILE", "saml"))
+        client = session.client("bedrock-runtime", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+        resp = client.converse(
+            modelId=BEDROCK_MODEL_ID,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 512},
+        )
+        answer = resp["output"]["message"]["content"][0]["text"]
+        return {"answer": answer}
+    except Exception as exc:
+        log.error("Ask-why Bedrock call failed: %s", exc)
+        raise HTTPException(status_code=503, detail=f"AI unavailable: {exc}")
 
 
 @router.get("/{execution_id}")

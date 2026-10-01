@@ -52,7 +52,121 @@ function DimScores({ dims }) {
   );
 }
 
-function OpportunityCard({ opp, rank }) {
+function AskAI({ opp, therapeuticArea }) {
+  const [open, setOpen] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  async function ask() {
+    const q = question.trim();
+    if (!q || loading) return;
+    setLoading(true);
+    setHistory(h => [...h, { role: "user", text: q }]);
+    setQuestion("");
+    try {
+      const res = await fetch(`${API_BASE}/scan/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunity: opp, question: q, therapeutic_area: therapeuticArea }),
+      });
+      const data = await res.json();
+      setHistory(h => [...h, { role: "ai", text: data.answer || data.detail || "No response." }]);
+    } catch (e) {
+      setHistory(h => [...h, { role: "ai", text: "Error: " + e.message }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          background: open ? COLORS.accent : "none",
+          border: `1px solid ${COLORS.accent}`,
+          color: open ? "#0f1923" : COLORS.accent,
+          cursor: "pointer", borderRadius: 6, padding: "5px 12px",
+          fontSize: 12, fontWeight: 600, transition: "all 0.2s",
+        }}
+      >
+        Ask AI Why?
+      </button>
+
+      {open && (
+        <div style={{
+          marginTop: 10, background: "#0f1923",
+          border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 14,
+        }}>
+          {history.length === 0 && (
+            <p style={{ fontSize: 12, color: COLORS.muted, margin: "0 0 10px" }}>
+              Ask anything about this opportunity — why it was ranked here, what drives a specific score, what to investigate next.
+            </p>
+          )}
+
+          {history.map((msg, i) => (
+            <div key={i} style={{
+              marginBottom: 10,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: msg.role === "user" ? "flex-end" : "flex-start",
+            }}>
+              <div style={{
+                maxWidth: "88%", padding: "8px 12px", borderRadius: 8, fontSize: 13,
+                background: msg.role === "user" ? COLORS.accent : COLORS.card,
+                color: msg.role === "user" ? "#0f1923" : COLORS.text,
+                lineHeight: 1.6,
+              }}>
+                {msg.text}
+              </div>
+            </div>
+          ))}
+
+          {loading && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, color: COLORS.muted, fontSize: 12 }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: "50%",
+                border: `2px solid ${COLORS.muted}`, borderTopColor: "transparent",
+                animation: "spin 1s linear infinite",
+              }} />
+              Thinking…
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <input
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && ask()}
+              placeholder="e.g. Why is the competitive landscape score low?"
+              style={{
+                flex: 1, background: COLORS.card, border: `1px solid ${COLORS.border}`,
+                color: COLORS.text, borderRadius: 6, padding: "8px 12px",
+                fontSize: 13, outline: "none",
+              }}
+              disabled={loading}
+            />
+            <button
+              onClick={ask}
+              disabled={loading || !question.trim()}
+              style={{
+                background: COLORS.accent, color: "#0f1923", border: "none",
+                borderRadius: 6, padding: "8px 16px", fontSize: 13,
+                fontWeight: 700, cursor: "pointer",
+                opacity: (loading || !question.trim()) ? 0.5 : 1,
+              }}
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OpportunityCard({ opp, rank, therapeuticArea }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div style={{
@@ -96,6 +210,7 @@ function OpportunityCard({ opp, rank }) {
             </ul>
           )}
           {opp.dimension_scores && <DimScores dims={opp.dimension_scores} />}
+          <AskAI opp={opp} therapeuticArea={therapeuticArea} />
         </div>
       </div>
     </div>
@@ -278,7 +393,7 @@ export default function App() {
                   Top {opportunities.length} Therapeutic Opportunities
                 </h2>
                 {opportunities.map((opp, i) => (
-                  <OpportunityCard key={i} opp={opp} rank={i + 1} />
+                  <OpportunityCard key={i} opp={opp} rank={i + 1} therapeuticArea={therapeuticArea} />
                 ))}
               </>
             ) : (
