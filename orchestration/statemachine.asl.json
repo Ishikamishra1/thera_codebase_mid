@@ -156,8 +156,8 @@
           "States": {
             "CompetitionAgent": {
               "Type": "Task",
-              "Comment": "MVP: derived from ClinicalTrials.gov sponsor field; a dedicated tool can be split out later",
-              "Resource": "${QueryClinicalTrialsArn}",
+              "Comment": "Dedicated competition agent: analyzes active trial sponsors to surface pharma competitive landscape and white-space",
+              "Resource": "${QueryCompetitionArn}",
               "End": true,
               "Retry": [
                 {
@@ -180,8 +180,8 @@
           "States": {
             "TrendAgent": {
               "Type": "Task",
-              "Comment": "MVP: derived from PubMed publication-date trends; a dedicated tool can be split out later",
-              "Resource": "${QueryPubmedArn}",
+              "Comment": "Dedicated trend agent: measures PubMed publication velocity across year windows to signal research momentum",
+              "Resource": "${QueryTrendsArn}",
               "End": true,
               "Retry": [
                 {

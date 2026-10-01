@@ -114,6 +114,7 @@ function AgentSummary({ findings }) {
   const icons = {
     disease_agent: "🧬", treatment_agent: "💊",
     research_agent: "📄", clinical_trial_agent: "🔬",
+    competition_agent: "🏁", trend_agent: "📈",
   };
   return (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>

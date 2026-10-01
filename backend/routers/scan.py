@@ -119,6 +119,8 @@ def _build_prompt(therapeutic_area: str, by_agent: dict) -> str:
         fmt("treatment_agent", "APPROVED TREATMENTS (FDA)"),
         fmt("research_agent", "SCIENTIFIC LITERATURE (PubMed)"),
         fmt("clinical_trial_agent", "CLINICAL TRIALS (ClinicalTrials.gov)"),
+        fmt("competition_agent", "COMPETITIVE LANDSCAPE (Active Trial Sponsors)"),
+        fmt("trend_agent", "RESEARCH MOMENTUM (Publication Trends)"),
     ])
 
     return f"""You are a pharmaceutical research intelligence analyst.
