@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers import scan
+import db
 
 app = FastAPI(
     title="TheraScout API",
@@ -28,7 +29,14 @@ app.add_middleware(
 
 app.include_router(scan.router, prefix="/scan", tags=["scan"])
 
+# Apply schema on startup (no-op if DATABASE_URL not set)
+db.init_schema()
+
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    import os
+    return {
+        "status": "ok",
+        "db_configured": bool(os.environ.get("DATABASE_URL")),
+    }

@@ -251,6 +251,84 @@ function AgentSummary({ findings }) {
   );
 }
 
+function ScanHistory() {
+  const [history, setHistory] = useState(null);
+  const [open, setOpen] = useState(false);
+
+  async function load() {
+    if (history) { setOpen(o => !o); return; }
+    try {
+      const res = await fetch(`${API_BASE}/scan/history`);
+      const data = await res.json();
+      setHistory(data.scans || []);
+      setOpen(true);
+    } catch {
+      setHistory([]);
+      setOpen(true);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <button
+        onClick={load}
+        style={{
+          background: "none", border: `1px solid ${COLORS.border}`,
+          color: COLORS.muted, cursor: "pointer", borderRadius: 8,
+          padding: "8px 16px", fontSize: 13, fontWeight: 600,
+        }}
+      >
+        {open ? "▲ Hide scan history" : "▼ View past scans"}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {!history?.length ? (
+            <div style={{ color: COLORS.muted, fontSize: 13, padding: "12px 0" }}>
+              No past scans found. Run a scan and results will be saved here
+              (requires DATABASE_URL to be configured).
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {history.map((s, i) => (
+                <div key={i} style={{
+                  background: COLORS.card, border: `1px solid ${COLORS.border}`,
+                  borderRadius: 8, padding: "12px 16px",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.text }}>
+                      {s.therapeutic_area}
+                    </div>
+                    <div style={{ fontSize: 12, color: COLORS.muted, marginTop: 3 }}>
+                      {s.completed_at ? new Date(s.completed_at).toLocaleString() : "—"}
+                      {" · "}{s.opportunity_count} opportunities
+                      {" · "}<span style={{ color: COLORS.muted }}>{s.scoring_method}</span>
+                    </div>
+                  </div>
+                  {s.top_opportunity_score != null && (
+                    <div style={{
+                      textAlign: "right", minWidth: 90,
+                    }}>
+                      <div style={{ fontSize: 11, color: COLORS.muted }}>Top score</div>
+                      <div style={{ fontWeight: 700, fontSize: 18, color: COLORS.accent }}>
+                        {Math.round(s.top_opportunity_score)}
+                      </div>
+                      <div style={{ fontSize: 11, color: COLORS.muted, maxWidth: 120, textAlign: "right" }}>
+                        {s.top_opportunity_name}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [therapeuticArea, setTherapeuticArea] = useState("Colorectal Cancer");
   const [status, setStatus] = useState(null);
@@ -430,6 +508,8 @@ export default function App() {
             </p>
           </>
         )}
+
+        <ScanHistory />
       </div>
 
       <style>{`

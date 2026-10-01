@@ -16,6 +16,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import boto3
+import db
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -85,6 +86,33 @@ Answer in 3-5 sentences. Be specific, cite the evidence above, and explain the s
         raise HTTPException(status_code=503, detail=f"AI unavailable: {exc}")
 
 
+@router.get("/history")
+def get_history(limit: int = 20):
+    """Return the most recent completed scans from RDS."""
+    rows = db.get_history(limit=limit)
+    return {
+        "scans": rows,
+        "db_available": bool(rows) or bool(os.environ.get("DATABASE_URL")),
+    }
+
+
+@router.get("/weights")
+def get_scoring_weights():
+    """Return current scoring dimension weights from RDS."""
+    weights = db.get_weights()
+    if not weights:
+        # Return defaults when DB not configured
+        weights = {
+            "unmet_medical_need": 0.30,
+            "disease_burden": 0.20,
+            "existing_treatment_gap": 0.20,
+            "scientific_evidence": 0.15,
+            "research_momentum": 0.10,
+            "competitive_landscape": 0.05,
+        }
+    return {"weights": weights, "source": "rds" if db.get_weights() else "default"}
+
+
 @router.get("/{execution_id}")
 def get_scan_status(execution_id: str):
     execution_arn = f"{STATE_MACHINE_ARN.replace(':stateMachine:', ':execution:')}:{execution_id}"
@@ -99,13 +127,15 @@ def get_scan_status(execution_id: str):
 
     if status == "SUCCEEDED":
         raw = json.loads(response.get("output", "{}"))
-        # Re-score using Bedrock from the backend (SAML credentials can call Bedrock)
         agent_findings = raw.get("agent_findings", [])
         therapeutic_area = raw.get("therapeutic_area", "Unknown")
 
         llm_result = _score_with_bedrock(therapeutic_area, agent_findings)
         raw["ranked_opportunities"] = llm_result
         result["output"] = raw
+
+        # Persist to RDS (no-op if DATABASE_URL not set)
+        db.save_scan(execution_arn, therapeutic_area, llm_result)
 
     elif status == "FAILED":
         result["error"] = response.get("cause", "Unknown failure")
