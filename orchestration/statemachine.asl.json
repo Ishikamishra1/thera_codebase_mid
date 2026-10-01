@@ -198,6 +198,30 @@
               ]
             }
           }
+        },
+        {
+          "StartAt": "EuropePMCAgent",
+          "States": {
+            "EuropePMCAgent": {
+              "Type": "Task",
+              "Comment": "Europe PMC agent: peer-reviewed articles, preprints, patents with citation counts — covers European research and open-access literature not in PubMed",
+              "Resource": "${QueryEuropePmcArn}",
+              "End": true,
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ]
+            }
+          }
         }
       ],
       "Next": "Agent_GapAnalysisAndScoring"
