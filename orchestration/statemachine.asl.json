@@ -222,6 +222,30 @@
               ]
             }
           }
+        },
+        {
+          "StartAt": "EnterpriseKBAgent",
+          "States": {
+            "EnterpriseKBAgent": {
+              "Type": "Task",
+              "Comment": "RAG agent: retrieve_and_generate over enterprise documents in Bedrock Knowledge Base (S3 kb/ prefix → OpenSearch Serverless vectors). Returns empty gracefully if KB not yet configured.",
+              "Resource": "${QueryKnowledgeBaseArn}",
+              "End": true,
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ]
+            }
+          }
         }
       ],
       "Next": "Agent_GapAnalysisAndScoring"
