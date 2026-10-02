@@ -130,6 +130,31 @@ def retrain_weights():
     return {"status": "retrained", "new_weights": new_weights}
 
 
+@router.get("/demo")
+def get_demo(therapeutic_area: str = "Colorectal Cancer"):
+    """
+    Return a pre-seeded scan result for demo/fallback mode.
+    Use when Step Functions is unavailable (expired SAML token, VPN issues, etc.)
+    Requires the database to have been seeded with: python scripts/seed_database.py
+    """
+    data = db.get_demo_scan(therapeutic_area)
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail="No demo data found. Run: python scripts/seed_database.py",
+        )
+    return {
+        "status": "SUCCEEDED",
+        "source": "demo_db",
+        "output": {
+            "therapeutic_area": data["therapeutic_area"],
+            "ranked_opportunities": data["ranked_opportunities"],
+            "execution_arn": data["execution_arn"],
+            "agent_findings": [],
+        },
+    }
+
+
 @router.get("/history")
 def get_history(limit: int = 20):
     """Return the most recent completed scans from RDS."""

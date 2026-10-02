@@ -145,6 +145,12 @@ function AskAI({ opp, therapeuticArea }) {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [pulsed, setPulsed] = useState(true); // pulse until first click
+
+  function handleOpen() {
+    setOpen(o => !o);
+    setPulsed(false);
+  }
 
   async function ask() {
     const q = question.trim();
@@ -170,16 +176,18 @@ function AskAI({ opp, therapeuticArea }) {
   return (
     <div style={{ marginTop: 12 }}>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={handleOpen}
         style={{
           background: open ? COLORS.accent : "none",
           border: `1px solid ${COLORS.accent}`,
           color: open ? "#0f1923" : COLORS.accent,
           cursor: "pointer", borderRadius: 6, padding: "5px 12px",
           fontSize: 12, fontWeight: 600, transition: "all 0.2s",
+          animation: pulsed && !open ? "askPulse 2s ease-in-out infinite" : "none",
+          boxShadow: pulsed && !open ? `0 0 0 0 ${COLORS.accent}66` : "none",
         }}
       >
-        Ask AI Why?
+        ✨ Ask AI Why?
       </button>
 
       {open && (
@@ -664,6 +672,29 @@ export default function App() {
   const [status, setStatus] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [demoLoading, setDemoLoading] = useState(false);
+
+  async function loadDemo() {
+    setDemoLoading(true);
+    setResult(null);
+    setError(null);
+    setStatus(null);
+    try {
+      const res = await fetch(`${API_BASE}/scan/demo?therapeutic_area=${encodeURIComponent(therapeuticArea)}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Demo data not available");
+      }
+      const data = await res.json();
+      setStatus("SUCCEEDED");
+      setResult(data.output);
+    } catch (e) {
+      setError("Demo mode: " + e.message + " — run: python scripts/seed_database.py");
+      setStatus("FAILED");
+    } finally {
+      setDemoLoading(false);
+    }
+  }
 
   async function startScan() {
     setStatus("STARTING");
@@ -753,7 +784,7 @@ export default function App() {
             />
             <button
               onClick={startScan}
-              disabled={status === "RUNNING" || status === "STARTING"}
+              disabled={status === "RUNNING" || status === "STARTING" || demoLoading}
               style={{
                 background: COLORS.accent, color: "#0f1923",
                 border: "none", borderRadius: 8, padding: "10px 20px",
@@ -763,6 +794,22 @@ export default function App() {
             >
               {status === "RUNNING" || status === "STARTING" ? "Scanning…" : "Discover Opportunities"}
             </button>
+            <button
+              onClick={loadDemo}
+              disabled={demoLoading || status === "RUNNING" || status === "STARTING"}
+              title="Load pre-seeded demo results instantly — no AWS required"
+              style={{
+                background: "none", border: `1px solid ${COLORS.accent}`,
+                color: COLORS.accent, borderRadius: 8, padding: "10px 16px",
+                fontWeight: 600, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap",
+                opacity: demoLoading ? 0.6 : 1,
+              }}
+            >
+              {demoLoading ? "Loading…" : "▶ Demo"}
+            </button>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: COLORS.muted }}>
+            💡 Use <strong style={{ color: COLORS.text }}>▶ Demo</strong> for instant results without AWS — or <strong style={{ color: COLORS.text }}>Discover Opportunities</strong> for a live scan.
           </div>
         </div>
 
@@ -855,6 +902,11 @@ export default function App() {
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes askPulse {
+          0%   { box-shadow: 0 0 0 0 ${COLORS.accent}55; }
+          50%  { box-shadow: 0 0 0 6px ${COLORS.accent}00; }
+          100% { box-shadow: 0 0 0 0 ${COLORS.accent}00; }
+        }
         * { box-sizing: border-box; }
         body { margin: 0; }
         input:focus { border-color: ${COLORS.accent} !important; }

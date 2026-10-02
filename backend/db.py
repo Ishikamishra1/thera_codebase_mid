@@ -232,6 +232,75 @@ def save_feedback(execution_arn: str, opportunity_rank: int,
         return False
 
 
+def get_demo_scan(therapeutic_area: str = "Colorectal Cancer") -> dict | None:
+    """
+    Return a full pre-seeded scan (with opportunities) for demo/fallback use.
+    Falls back to any scan if the requested area is not found.
+    """
+    conn = _get_conn()
+    if conn is None:
+        return None
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, execution_arn, therapeutic_area, completed_at,
+                       scoring_method, bedrock_model, opportunity_count,
+                       top_opportunity_name, top_opportunity_score
+                FROM scans
+                WHERE completed_at IS NOT NULL
+                ORDER BY
+                    CASE WHEN LOWER(therapeutic_area) = LOWER(%s) THEN 0 ELSE 1 END,
+                    completed_at DESC
+                LIMIT 1
+                """,
+                (therapeutic_area,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+
+            cols = ["id", "execution_arn", "therapeutic_area", "completed_at",
+                    "scoring_method", "bedrock_model", "opportunity_count",
+                    "top_opportunity_name", "top_opportunity_score"]
+            scan = dict(zip(cols, row))
+            scan_id = scan.pop("id")
+
+            cur.execute(
+                """
+                SELECT rank, name, score, rationale, key_evidence, dimension_scores
+                FROM opportunities
+                WHERE scan_id = %s
+                ORDER BY rank
+                """,
+                (scan_id,),
+            )
+            opp_cols = ["rank", "name", "score", "rationale", "key_evidence", "dimension_scores"]
+            opportunities = []
+            for opp_row in cur.fetchall():
+                opp = dict(zip(opp_cols, opp_row))
+                if isinstance(opp["key_evidence"], str):
+                    opp["key_evidence"] = json.loads(opp["key_evidence"])
+                if isinstance(opp["dimension_scores"], str):
+                    opp["dimension_scores"] = json.loads(opp["dimension_scores"])
+                opportunities.append(opp)
+
+        if scan.get("completed_at"):
+            scan["completed_at"] = scan["completed_at"].isoformat()
+
+        return {
+            "scan": scan,
+            "ranked_opportunities": {"opportunities": opportunities, "method": scan.get("scoring_method", "demo")},
+            "execution_arn": scan["execution_arn"],
+            "therapeutic_area": scan["therapeutic_area"],
+        }
+
+    except Exception as exc:
+        log.error("get_demo_scan failed: %s", exc)
+        return None
+
+
 def get_feedback_stats() -> dict:
     """
     Return per-dimension average scores for approved vs rejected opportunities.
