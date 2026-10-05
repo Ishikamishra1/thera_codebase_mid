@@ -7,7 +7,8 @@ phases:
       - IMAGE_URI=446205069645.dkr.ecr.us-east-1.amazonaws.com/therascout-backend:latest
   build:
     commands:
-      - docker build -f backend/Dockerfile -t $IMAGE_URI .
+      - mkdir -p backend/data && cp data/schema.sql backend/data/schema.sql || true
+      - docker build -t $IMAGE_URI backend/
   post_build:
     commands:
       - docker push $IMAGE_URI
