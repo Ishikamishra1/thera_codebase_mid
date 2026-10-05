@@ -680,7 +680,7 @@ export default function App() {
     setError(null);
     setStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/scan/demo?therapeutic_area=${encodeURIComponent(therapeuticArea)}`);
+      const res = await fetch(`${API_BASE}/scan/demo`);
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.detail || "Demo data not available");
@@ -808,7 +808,25 @@ export default function App() {
               {demoLoading ? "Loading…" : "▶ Demo"}
             </button>
           </div>
-          <div style={{ marginTop: 8, fontSize: 11, color: COLORS.muted }}>
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, color: COLORS.muted }}>Try:</span>
+            {["Colorectal Cancer", "Non-Small Cell Lung Cancer", "Alzheimer's Disease"].map(area => (
+              <button
+                key={area}
+                onClick={() => setTherapeuticArea(area)}
+                style={{
+                  background: "none", border: `1px solid ${COLORS.border}`,
+                  color: COLORS.muted, borderRadius: 20, padding: "3px 10px",
+                  fontSize: 11, cursor: "pointer", transition: "all 0.2s",
+                }}
+                onMouseEnter={e => { e.target.style.borderColor = COLORS.accent; e.target.style.color = COLORS.accent; }}
+                onMouseLeave={e => { e.target.style.borderColor = COLORS.border; e.target.style.color = COLORS.muted; }}
+              >
+                {area}
+              </button>
+            ))}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 11, color: COLORS.muted }}>
             💡 Use <strong style={{ color: COLORS.text }}>▶ Demo</strong> for instant results without AWS — or <strong style={{ color: COLORS.text }}>Discover Opportunities</strong> for a live scan.
           </div>
         </div>

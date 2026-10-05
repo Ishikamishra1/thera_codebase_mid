@@ -1,0 +1,17 @@
+version: 1.0
+runtime: python311
+build:
+  commands:
+    build:
+      - pip install -r requirements.txt
+run:
+  command: python -m uvicorn main:app --host 0.0.0.0 --port 8080
+  network:
+    port: 8080
+  env:
+    - name: STATE_MACHINE_ARN
+      value: arn:aws:states:us-east-1:446205069645:stateMachine:TheraScoutOpportunityScan
+    - name: BEDROCK_MODEL_ID
+      value: amazon.nova-pro-v1:0
+    - name: AWS_DEFAULT_REGION
+      value: us-east-1

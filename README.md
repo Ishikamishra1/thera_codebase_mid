@@ -2,7 +2,7 @@
 
 **Agentic AI platform for pharmaceutical R&D opportunity prioritization.**
 
-TheraScout takes a therapeutic area (e.g., Colorectal Cancer) and deploys four specialized AI agents in parallel to gather data from GLOBOCAN, PubMed, ClinicalTrials.gov, and openFDA. Amazon Nova Pro (via Bedrock) synthesizes the findings and ranks the **Top 5 therapeutic research opportunities** using a six-dimension weighted scoring model.
+TheraScout takes a therapeutic area (e.g., Colorectal Cancer) and deploys **eight specialized AI agents** in parallel to gather data from GLOBOCAN, PubMed, ClinicalTrials.gov, openFDA, Europe PMC, and an enterprise RAG knowledge base. Amazon Nova Pro (via Bedrock) synthesizes the findings and ranks the **Top 5 therapeutic research opportunities** using a six-dimension weighted scoring model.
 
 ---
 
@@ -15,10 +15,14 @@ User selects therapeutic area
 FastAPI Backend (scan.py)
         │  starts execution
         ▼
-AWS Step Functions ── parallel ──┬── Disease Agent    (GLOBOCAN / WHO data)
-                                 ├── Treatment Agent  (openFDA drug labels)
-                                 ├── Research Agent   (PubMed publications)
-                                 └── Clinical Trial Agent (ClinicalTrials.gov)
+AWS Step Functions ── parallel ──┬── Disease Agent         (GLOBOCAN / WHO data)
+                                 ├── Treatment Agent      (openFDA drug labels)
+                                 ├── Research Agent       (PubMed publications)
+                                 ├── Clinical Trial Agent (ClinicalTrials.gov)
+                                 ├── Competition Agent    (trial sponsor analysis)
+                                 ├── Trends Agent         (PubMed velocity / momentum)
+                                 ├── Europe PMC Agent     (European research corpus)
+                                 └── Enterprise KB Agent  (Bedrock RAG knowledge base)
                                               │
                                               ▼
                               Amazon Nova Pro (Bedrock Converse API)
@@ -193,6 +197,10 @@ methodology — then triggers Bedrock ingestion automatically (takes ~2-5 min).
 | Treatment Agent | openFDA drug label API |
 | Research Agent | PubMed / NCBI Entrez API |
 | Clinical Trial Agent | ClinicalTrials.gov API v2 |
+| Competition Agent | ClinicalTrials.gov — trial sponsor aggregation |
+| Trends Agent | PubMed — publication velocity across 1/2/3/5-year windows |
+| Europe PMC Agent | Europe PMC full-text research corpus |
+| Enterprise KB Agent | Amazon Bedrock RAG — internal research knowledge base |
 
 ---
 

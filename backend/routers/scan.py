@@ -13,6 +13,7 @@ import os
 import json
 import re
 import logging
+import itertools
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import boto3
@@ -130,14 +131,23 @@ def retrain_weights():
     return {"status": "retrained", "new_weights": new_weights}
 
 
+_DEMO_ROTATION = itertools.cycle([
+    ("Colorectal Cancer",   "demo-colorectal-001"),
+    ("Non-Small Cell Lung Cancer", "demo-nsclc-002"),
+    ("Alzheimer's Disease", "demo-alzheimers-003"),
+])
+
 @router.get("/demo")
-def get_demo(therapeutic_area: str = "Colorectal Cancer"):
+def get_demo():
     """
     Return a demo scan result — always works, no AWS required.
+    Rotates through 3 therapeutic areas on each call.
     Tries DB first (if seeded), falls back to hardcoded showcase data.
     """
+    area, demo_id = next(_DEMO_ROTATION)
+
     # Try DB first
-    data = db.get_demo_scan(therapeutic_area)
+    data = db.get_demo_scan(area)
     if data:
         return {
             "status": "SUCCEEDED",
@@ -146,24 +156,31 @@ def get_demo(therapeutic_area: str = "Colorectal Cancer"):
                 "therapeutic_area": data["therapeutic_area"],
                 "ranked_opportunities": data["ranked_opportunities"],
                 "execution_arn": data["execution_arn"],
-                "agent_findings": _DEMO_AGENT_FINDINGS,
+                "agent_findings": _DEMO_AGENT_FINDINGS_BY_AREA.get(area, _DEMO_AGENT_FINDINGS_CRC),
             },
         }
 
     # Hardcoded fallback — always available, no DB needed
+    datasets = {
+        "Colorectal Cancer": (_DEMO_OPPORTUNITIES_CRC, _DEMO_AGENT_FINDINGS_CRC),
+        "Non-Small Cell Lung Cancer": (_DEMO_OPPORTUNITIES_NSCLC, _DEMO_AGENT_FINDINGS_NSCLC),
+        "Alzheimer's Disease": (_DEMO_OPPORTUNITIES_ALZ, _DEMO_AGENT_FINDINGS_ALZ),
+    }
+    opps, findings = datasets[area]
+    arn_base = "arn:aws:states:us-east-1:446205069645:execution:TheraScoutOpportunityScan"
     return {
         "status": "SUCCEEDED",
         "source": "demo_static",
         "output": {
-            "therapeutic_area": "Colorectal Cancer",
-            "execution_arn": "arn:aws:states:us-east-1:446205069645:execution:TheraScoutOpportunityScan:demo-colorectal-001",
-            "ranked_opportunities": _DEMO_OPPORTUNITIES,
-            "agent_findings": _DEMO_AGENT_FINDINGS,
+            "therapeutic_area": area,
+            "execution_arn": f"{arn_base}:{demo_id}",
+            "ranked_opportunities": opps,
+            "agent_findings": findings,
         },
     }
 
 
-_DEMO_OPPORTUNITIES = {
+_DEMO_OPPORTUNITIES_CRC = {
     "opportunities": [
         {
             "name": "Targeted therapies for KRAS-mutant metastatic CRC",
@@ -245,7 +262,7 @@ _DEMO_OPPORTUNITIES = {
     "model": "amazon.nova-pro-v1:0",
 }
 
-_DEMO_AGENT_FINDINGS = [
+_DEMO_AGENT_FINDINGS_CRC = [
     {
         "agent": "disease_agent", "tool": "query_globocan_data",
         "record_count": 8, "records": [],
@@ -301,6 +318,283 @@ _DEMO_AGENT_FINDINGS = [
         "llm_insights": "Internal guidelines emphasise unmet need in KRAS-mutant and MSS populations. Previous portfolio analysis identified liquid biopsy as a platform technology priority.",
     },
 ]
+
+
+_DEMO_OPPORTUNITIES_NSCLC = {
+    "opportunities": [
+        {
+            "name": "KRAS G12C inhibitors beyond sotorasib in NSCLC",
+            "score": 89.0,
+            "rationale": "Sotorasib and adagrasib are approved for KRAS G12C NSCLC, but resistance emerges rapidly. Next-generation KRAS inhibitors and combinations with SHP2 or SOS1 represent a large commercial opportunity with validated mechanism.",
+            "key_evidence": [
+                "KRAS G12C mutation in ~13% of NSCLC — the most common KRAS variant",
+                "Adagrasib (KRYSTAL-1): 43% ORR but median DoR only 8.5 months — resistance is the bottleneck",
+                "SHP2 inhibitor combinations show preclinical synergy with KRASG12C inhibitors",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 92, "disease_burden": 90,
+                "existing_treatment_gap": 88, "scientific_evidence": 85,
+                "research_momentum": 86, "competitive_landscape": 40,
+            },
+        },
+        {
+            "name": "STK11/KEAP1 co-mutation immunotherapy resistance in NSCLC",
+            "score": 85.0,
+            "rationale": "STK11 and KEAP1 co-mutations confer primary resistance to PD-1 blockade in KRAS-mutant NSCLC. This large underserved subgroup (~20% of NSCLC) has no approved targeted options and poor outcomes on standard immunotherapy.",
+            "key_evidence": [
+                "STK11 loss associated with >60% reduction in IO response rate in KRAS-mutant NSCLC",
+                "No FDA-approved therapy specifically targeting STK11/KEAP1-altered tumors",
+                "STING pathway agonists showing early clinical activity in STK11-mutant disease",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 94, "disease_burden": 88,
+                "existing_treatment_gap": 95, "scientific_evidence": 72,
+                "research_momentum": 75, "competitive_landscape": 68,
+            },
+        },
+        {
+            "name": "HER2-targeted ADCs for HER2-mutant NSCLC",
+            "score": 82.0,
+            "rationale": "T-DXd (trastuzumab deruxtecan) received accelerated approval for HER2-mutant NSCLC in 2022. The ADC platform validated for this population with ~3% mutation prevalence — room for next-generation agents with improved therapeutic index.",
+            "key_evidence": [
+                "T-DXd: 57.7% ORR in HER2-mutant NSCLC (DESTINY-Lung02)",
+                "HER2 mutations in ~2-4% of NSCLC — small but commercially validated niche",
+                "Interstitial lung disease signal with T-DXd — safety window improvement needed",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 80, "disease_burden": 75,
+                "existing_treatment_gap": 78, "scientific_evidence": 82,
+                "research_momentum": 80, "competitive_landscape": 35,
+            },
+        },
+        {
+            "name": "ctDNA MRD monitoring for NSCLC adjuvant therapy decisions",
+            "score": 74.0,
+            "rationale": "Circulating tumor DNA minimal residual disease detection after curative resection could identify patients needing adjuvant therapy. Strong biomarker data but no prospective RCT data yet in NSCLC.",
+            "key_evidence": [
+                "ctDNA detection post-surgery predicts recurrence with ~92% specificity in early NSCLC",
+                "ADAURA trial: osimertinib adjuvant in EGFR+ NSCLC — ctDNA could refine selection",
+                "Phase III MERMAID-2 ongoing: ctDNA-guided adjuvant immunotherapy in NSCLC",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 78, "disease_burden": 82,
+                "existing_treatment_gap": 72, "scientific_evidence": 65,
+                "research_momentum": 78, "competitive_landscape": 55,
+            },
+        },
+        {
+            "name": "Bispecific antibodies targeting PD-1 and TIGIT in NSCLC",
+            "score": 65.0,
+            "rationale": "TIGIT emerged as a co-inhibitory receptor target after PD-1 success, but Phase III TIGIT monotherapy results have been disappointing. Bispecifics co-targeting PD-1/TIGIT may overcome the single-agent limitations.",
+            "key_evidence": [
+                "Tiragolumab + atezolizumab SKYSCRAPER-01: failed primary endpoint in PD-L1 high NSCLC",
+                "IBI321 (PD-1/TIGIT bispecific) Phase I shows encouraging early signals",
+                "Crowded space: 14 anti-TIGIT agents in active development",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 72, "disease_burden": 80,
+                "existing_treatment_gap": 65, "scientific_evidence": 55,
+                "research_momentum": 60, "competitive_landscape": 20,
+            },
+        },
+    ],
+    "method": "bedrock_llm",
+    "model": "amazon.nova-pro-v1:0",
+}
+
+_DEMO_AGENT_FINDINGS_NSCLC = [
+    {
+        "agent": "disease_agent", "tool": "query_globocan_data",
+        "record_count": 9, "records": [],
+        "llm_insights": "NSCLC accounts for ~85% of all lung cancers — the leading cause of cancer death globally (1.8M deaths/year). Five-year survival remains <20% overall despite targeted therapy advances.",
+    },
+    {
+        "agent": "treatment_agent", "tool": "query_openfda",
+        "record_count": 18, "records": [],
+        "llm_insights": "18 FDA-approved therapies — most targeted (EGFR, ALK, ROS1, BRAF, KRAS G12C, HER2, MET, RET, NTRK). Significant gap in STK11/KEAP1-mutant and squamous subtypes.",
+    },
+    {
+        "agent": "research_agent", "tool": "query_pubmed",
+        "record_count": 52, "records": [],
+        "llm_insights": "Extremely high publication velocity — KRAS resistance mechanisms and bispecific antibodies driving the upswing. STK11 biology papers up 40% YoY.",
+    },
+    {
+        "agent": "clinical_trial_agent", "tool": "query_clinicaltrials",
+        "record_count": 68, "records": [],
+        "llm_insights": "68 active/recruiting trials. Dense Phase III activity in IO combinations. Notable: MERMAID-2 (ctDNA adjuvant), KRYSTAL-12 (adagrasib 2L), MARIPOSA (amivantamab+lazertinib).",
+    },
+    {
+        "agent": "competition_agent", "tool": "query_competition",
+        "record_count": 22,
+        "records": [
+            {"sponsor_name": "AstraZeneca", "sponsor_class": "INDUSTRY", "trial_count": 12, "phases": ["PHASE2", "PHASE3"]},
+            {"sponsor_name": "Genentech/Roche", "sponsor_class": "INDUSTRY", "trial_count": 10, "phases": ["PHASE3"]},
+            {"sponsor_name": "Merck Sharp & Dohme", "sponsor_class": "INDUSTRY", "trial_count": 9, "phases": ["PHASE2", "PHASE3"]},
+            {"sponsor_name": "Amgen", "sponsor_class": "INDUSTRY", "trial_count": 7, "phases": ["PHASE2"]},
+            {"sponsor_name": "Johnson & Johnson", "sponsor_class": "INDUSTRY", "trial_count": 6, "phases": ["PHASE2", "PHASE3"]},
+            {"sponsor_name": "National Cancer Institute", "sponsor_class": "NIH", "trial_count": 5, "phases": ["PHASE1", "PHASE2"]},
+        ],
+        "llm_insights": "Most competitive oncology landscape overall. White-space remains in STK11/KEAP1 co-mutation biology and ctDNA-guided treatment selection.",
+    },
+    {
+        "agent": "trend_agent", "tool": "query_trends",
+        "record_count": 1,
+        "records": [{"year_windows": {1: 680, 2: 1250, 3: 1720, 5: 2400}, "year_over_year_change_pct": 18.2, "momentum": "accelerating"}],
+        "llm_insights": "Publication velocity accelerating at 18.2% YoY — the highest momentum of any solid tumor. KRAS biology and IO resistance mechanisms driving volume.",
+    },
+    {
+        "agent": "europe_pmc_agent", "tool": "query_europe_pmc",
+        "record_count": 22, "records": [],
+        "llm_insights": "Strong European translational research in EGFR and ALK resistance. High preprint volume in liquid biopsy and ctDNA monitoring.",
+    },
+    {
+        "agent": "enterprise_kb_agent", "tool": "query_knowledge_base",
+        "record_count": 3, "records": [],
+        "kb_status": "active",
+        "llm_insights": "Internal portfolio flagged STK11/KEAP1 as white-space in 2023 pipeline review. ctDNA MRD monitoring identified as platform technology of interest.",
+    },
+]
+
+_DEMO_OPPORTUNITIES_ALZ = {
+    "opportunities": [
+        {
+            "name": "Anti-tau therapies for early-stage Alzheimer's disease",
+            "score": 88.0,
+            "rationale": "Amyloid-targeting antibodies (lecanemab, donanemab) achieved regulatory approval but tau pathology drives neurodegeneration downstream. Anti-tau approaches represent the next frontier with large patient populations in early AD.",
+            "key_evidence": [
+                "Lecanemab (Leqembi) approved 2023: slows decline 27% but does not stop tau spread",
+                "Tau PET now enables patient selection — early AD population identifiable pre-symptoms",
+                "LUCIDITY trial: semorinemab Phase II missed primary endpoint but signals in early disease",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 96, "disease_burden": 95,
+                "existing_treatment_gap": 90, "scientific_evidence": 78,
+                "research_momentum": 82, "competitive_landscape": 55,
+            },
+        },
+        {
+            "name": "Neuroinflammation targets (TREM2/CSF1R) in Alzheimer's disease",
+            "score": 84.0,
+            "rationale": "Microglial dysfunction via TREM2 and CSF1R pathways is implicated in Alzheimer's neurodegeneration. GWAS studies identify TREM2 variants as significant risk factors — highly validated genetic target with no approved therapy.",
+            "key_evidence": [
+                "TREM2 R47H variant increases AD risk 2-4x — among the strongest genetic risk factors after APOE4",
+                "AL002 (TREM2 agonist antibody) Phase II ongoing: AL002a shows target engagement in CSF",
+                "CSF1R inhibitor PLX5622 reduces neuroinflammation in AD mouse models",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 88, "disease_burden": 92,
+                "existing_treatment_gap": 92, "scientific_evidence": 72,
+                "research_momentum": 78, "competitive_landscape": 62,
+            },
+        },
+        {
+            "name": "APOE4 gene correction and lipid metabolism in AD",
+            "score": 80.0,
+            "rationale": "APOE4 is present in ~25% of the population and confers 3-4x higher AD risk. Gene therapy and small molecule approaches targeting APOE4 lipid dysregulation are early but represent a massive prevention opportunity.",
+            "key_evidence": [
+                "APOE4 homozygotes have ~60% lifetime risk of AD vs ~10% for APOE3",
+                "Alector's AL101 (anti-APOE4 antibody) entering Phase I trials",
+                "CRISPR APOE4→APOE3 correction validated in iPSC-derived neurons",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 90, "disease_burden": 90,
+                "existing_treatment_gap": 88, "scientific_evidence": 62,
+                "research_momentum": 72, "competitive_landscape": 70,
+            },
+        },
+        {
+            "name": "Blood-based biomarkers for pre-symptomatic AD screening",
+            "score": 76.0,
+            "rationale": "Plasma p-tau217 and Abeta42/40 ratios now approach amyloid PET accuracy for identifying pre-symptomatic AD. Scalable blood tests could enable population-level screening to feed prevention trials.",
+            "key_evidence": [
+                "Plasma p-tau217 AUC 0.96 for amyloid PET positivity — near-PET accuracy",
+                "Lumipulse p-tau217 FDA cleared in 2024 for clinical use",
+                "Global Alzheimer's Association calls blood biomarkers 'transformative' for trial enrichment",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 82, "disease_burden": 88,
+                "existing_treatment_gap": 75, "scientific_evidence": 80,
+                "research_momentum": 85, "competitive_landscape": 45,
+            },
+        },
+        {
+            "name": "Synaptic protection strategies in mild cognitive impairment",
+            "score": 63.0,
+            "rationale": "Synaptic loss correlates more closely with cognitive decline than amyloid or tau burden. Neuroprotective strategies targeting synaptic integrity at the MCI stage represent an early-intervention opportunity but mechanism remains unclear.",
+            "key_evidence": [
+                "Synapse density (SV2A PET) correlates r=0.72 with MMSE decline — strongest structural correlate",
+                "Simufilam (PTI-125): Phase III failed primary endpoint despite strong Phase II signals",
+                "No approved therapy specifically preserving synaptic density in MCI",
+            ],
+            "dimension_scores": {
+                "unmet_medical_need": 78, "disease_burden": 85,
+                "existing_treatment_gap": 80, "scientific_evidence": 42,
+                "research_momentum": 55, "competitive_landscape": 65,
+            },
+        },
+    ],
+    "method": "bedrock_llm",
+    "model": "amazon.nova-pro-v1:0",
+}
+
+_DEMO_AGENT_FINDINGS_ALZ = [
+    {
+        "agent": "disease_agent", "tool": "query_globocan_data",
+        "record_count": 7, "records": [],
+        "llm_insights": "55 million people globally live with dementia; Alzheimer's accounts for 60-70%. Projected to reach 139M by 2050. Annual global cost exceeds $1.3 trillion — largest unmet need in neurology.",
+    },
+    {
+        "agent": "treatment_agent", "tool": "query_openfda",
+        "record_count": 6, "records": [],
+        "llm_insights": "6 FDA-approved therapies: 4 symptomatic (cholinesterase inhibitors + memantine) + lecanemab and donanemab (disease-modifying, 2023-2024). Massive gap in tau, neuroinflammation, and prevention.",
+    },
+    {
+        "agent": "research_agent", "tool": "query_pubmed",
+        "record_count": 44, "records": [],
+        "llm_insights": "High publication velocity. Blood biomarker and neuroinflammation papers up 35% YoY. Anti-amyloid literature plateauing; tau and TREM2 biology accelerating.",
+    },
+    {
+        "agent": "clinical_trial_agent", "tool": "query_clinicaltrials",
+        "record_count": 55, "records": [],
+        "llm_insights": "55 active/recruiting trials. Dense Phase II in tau and neuroinflammation. Key Phase III: TRAILBLAZER-ALZ 4 (donanemab subQ), AHEAD 3-45 (prevention in pre-symptomatic APOE4).",
+    },
+    {
+        "agent": "competition_agent", "tool": "query_competition",
+        "record_count": 16,
+        "records": [
+            {"sponsor_name": "Eli Lilly", "sponsor_class": "INDUSTRY", "trial_count": 9, "phases": ["PHASE2", "PHASE3"]},
+            {"sponsor_name": "Biogen/Eisai", "sponsor_class": "INDUSTRY", "trial_count": 7, "phases": ["PHASE3"]},
+            {"sponsor_name": "Roche/Genentech", "sponsor_class": "INDUSTRY", "trial_count": 6, "phases": ["PHASE2", "PHASE3"]},
+            {"sponsor_name": "National Institute on Aging", "sponsor_class": "NIH", "trial_count": 6, "phases": ["PHASE2", "PHASE3"]},
+            {"sponsor_name": "Alector", "sponsor_class": "INDUSTRY", "trial_count": 3, "phases": ["PHASE1", "PHASE2"]},
+            {"sponsor_name": "AC Immune", "sponsor_class": "INDUSTRY", "trial_count": 3, "phases": ["PHASE2"]},
+        ],
+        "llm_insights": "Anti-amyloid space now crowded with approved agents. Tau, TREM2/neuroinflammation, and APOE4-targeted approaches remain relatively open — white-space for differentiated entry.",
+    },
+    {
+        "agent": "trend_agent", "tool": "query_trends",
+        "record_count": 1,
+        "records": [{"year_windows": {1: 580, 2: 1020, 3: 1380, 5: 1900}, "year_over_year_change_pct": 15.8, "momentum": "accelerating"}],
+        "llm_insights": "Publication velocity up 15.8% YoY, driven by blood biomarker and neuroinflammation research. Post-lecanemab approval surge in early intervention and prevention literature.",
+    },
+    {
+        "agent": "europe_pmc_agent", "tool": "query_europe_pmc",
+        "record_count": 19, "records": [],
+        "llm_insights": "Strong European research in APOE genetics (UK Biobank) and tau PET. EPAD longitudinal cohort generating high-citation prevention trial data.",
+    },
+    {
+        "agent": "enterprise_kb_agent", "tool": "query_knowledge_base",
+        "record_count": 2, "records": [],
+        "kb_status": "active",
+        "llm_insights": "Internal neurology review identified blood biomarkers as platform priority for CRO partnerships. TREM2 biology flagged as emerging white-space in 2024 portfolio scan.",
+    },
+]
+
+_DEMO_AGENT_FINDINGS_BY_AREA = {
+    "Colorectal Cancer": _DEMO_AGENT_FINDINGS_CRC,
+    "Non-Small Cell Lung Cancer": _DEMO_AGENT_FINDINGS_NSCLC,
+    "Alzheimer's Disease": _DEMO_AGENT_FINDINGS_ALZ,
+}
 
 
 @router.get("/history")
