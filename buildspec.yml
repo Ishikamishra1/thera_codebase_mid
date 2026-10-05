@@ -1,0 +1,19 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 446205069645.dkr.ecr.us-east-1.amazonaws.com
+      - IMAGE_URI=446205069645.dkr.ecr.us-east-1.amazonaws.com/therascout-backend:latest
+  build:
+    commands:
+      - docker build -f backend/Dockerfile -t $IMAGE_URI .
+  post_build:
+    commands:
+      - docker push $IMAGE_URI
+      - echo "Image pushed to $IMAGE_URI"
+      - printf '[{"name":"therascout-backend","imageUri":"%s"}]' $IMAGE_URI > imagedefinitions.json
+
+artifacts:
+  files:
+    - imagedefinitions.json
